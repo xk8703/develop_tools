@@ -174,7 +174,8 @@ def render_entity(
     imports.add("com.baomidou.mybatisplus.annotation.TableId")
     imports.add("com.baomidou.mybatisplus.annotation.TableField")
     imports.add("com.baomidou.mybatisplus.annotation.IdType")
-    imports.add("lombok.Data")
+    imports.add("lombok.Getter")
+    imports.add("lombok.Setter")
 
     field_blocks: list[str] = []
     for col in columns:

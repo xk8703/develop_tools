@@ -403,15 +403,13 @@ class SQLPanel(ctk.CTkFrame):
             class_name = self._snake_to_pascal(table_name)
 
         db_type = self.db_type_var.get()
+        imports = {
+            "com.baomidou.mybatisplus.annotation.TableField",
+            "com.baomidou.mybatisplus.annotation.TableName",
+            "lombok.Data",
+        }
         lines = []
-
-        lines.append("/**")
-        lines.append(f" * 表 {table_name} 对应实体类")
-        lines.append(" */")
-        lines.append("@Data")
-        lines.append(f'@TableName("{table_name}")')
-        lines.append(f"public class {class_name} {{")
-        lines.append("")
+        field_lines = []
 
         for col in self._columns_data:
             name = col["name"]
@@ -421,21 +419,39 @@ class SQLPanel(ctk.CTkFrame):
 
             java_type = self._db_type_to_java(col_type, db_type)
             java_name = self._snake_to_camel(name)
+            if java_type == "BigDecimal":
+                imports.add("java.math.BigDecimal")
+            elif java_type in {"LocalDate", "LocalDateTime", "LocalTime"}:
+                imports.add(f"java.time.{java_type}")
 
             # 注释（始终输出）
             if comment:
-                lines.append(f"    /** {comment} */")
+                field_lines.append(f"    /** {comment} */")
             else:
-                lines.append("    /**  */")
+                field_lines.append("    /**  */")
 
             # 注解：主键用 @TableId，其余用 @TableField
             if key in ("PRI", "PK"):
-                lines.append(f'    @TableId(value = "{name}", type = IdType.ASSIGN_ID)')
+                imports.add("com.baomidou.mybatisplus.annotation.IdType")
+                imports.add("com.baomidou.mybatisplus.annotation.TableId")
+                field_lines.append(f'    @TableId(value = "{name}", type = IdType.ASSIGN_ID)')
             else:
-                lines.append(f'    @TableField("{name}")')
+                field_lines.append(f'    @TableField("{name}")')
 
-            lines.append(f"    private {java_type} {java_name};")
-            lines.append("")
+            field_lines.append(f"    private {java_type} {java_name};")
+            field_lines.append("")
+
+        for imp in sorted(imports):
+            lines.append(f"import {imp};")
+        lines.append("")
+        lines.append("/**")
+        lines.append(f" * 表 {table_name} 对应实体类")
+        lines.append(" */")
+        lines.append("@Data")
+        lines.append(f'@TableName("{table_name}")')
+        lines.append(f"public class {class_name} {{")
+        lines.append("")
+        lines.extend(field_lines)
 
         lines.append("}")
 

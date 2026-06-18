@@ -18,6 +18,7 @@ class JSONPanel(ctk.CTkFrame):
 
     # 默认保存路径
     SAVE_DIR = r"D:\mytool\json"
+    TREE_BATCH_SIZE = 500
 
     def __init__(self, master):
         super().__init__(master)
@@ -203,7 +204,8 @@ class JSONPanel(ctk.CTkFrame):
 
         tree.bind("<Button-3>", lambda e, t=tree, td=tree_data: self.show_context_menu(e, t, td))
         tree.bind("<Button-2>", lambda e, t=tree, td=tree_data: self.show_context_menu(e, t, td))
-        tree.bind("<Double-Button-1>", lambda e, t=tree: self.toggle_item(e, t))
+        tree.bind("<Double-Button-1>", lambda e, t=tree, td=tree_data: self.toggle_item(e, t, td))
+        tree.bind("<<TreeviewOpen>>", lambda e, t=tree, td=tree_data: self.load_tree_children(t, td))
 
         return tree, tree_data
 
@@ -224,11 +226,17 @@ class JSONPanel(ctk.CTkFrame):
             self.add_new_tab()
         return self._get_current_tab_name()
 
-    def toggle_item(self, event, tree):
+    def toggle_item(self, event, tree, tree_data):
         """切换节点的展开/折叠状态"""
-        item = tree.selection()
+        item = tree.identify_row(event.y)
+        if not item:
+            selected = tree.selection()
+            item = selected[0] if selected else ""
         if item:
-            item = item[0]
+            node_data = tree_data.get(item, {})
+            if node_data.get("type") == "load_more":
+                self.load_more_children(tree, tree_data, item)
+                return
             if tree.parent(item):
                 if tree.item(item, "open"):
                     tree.item(item, open=False)
@@ -297,59 +305,102 @@ class JSONPanel(ctk.CTkFrame):
 
             tab_info["json_data"] = data
 
-            if isinstance(data, dict):
-                self.fill_dict(data, "", tree, tree_data)
-            elif isinstance(data, list):
-                self.fill_list(data, "", tree, tree_data)
-            else:
-                tree.insert("", "end", text="root", values=(str(data),))
+            root_id = self.insert_json_node(tree, tree_data, "", "root", data)
+            if isinstance(data, (dict, list)) and data:
+                tree.item(root_id, open=True)
+                self.load_children_batch(tree, tree_data, root_id)
 
         except json.JSONDecodeError as e:
             self.show_error(tab_name, f"JSON 格式错误:\n{str(e)}\n\n请检查:\n1. 括号是否配对\n2. 键名是否使用双引号\n3. 字符串是否使用双引号\n4. 是否有尾随逗号")
         except Exception as e:
             self.show_error(tab_name, f"错误: {str(e)}")
 
-    def fill_dict(self, data, parent, tree, tree_data):
-        """填充字典到树状视图"""
-        for key, value in data.items():
-            node_id = tree.insert(parent, "end", text=str(key))
+    def insert_json_node(self, tree, tree_data, parent, key, value):
+        """插入 JSON 节点，容器节点展开时再加载子项"""
+        value_type = self.get_value_type(value)
+        if isinstance(value, dict):
+            value_text = f"{{{len(value)} 项}}"
+        elif isinstance(value, list):
+            value_text = f"[{len(value)} 项]"
+        else:
+            value_text = self.format_value(value)
 
-            value_type = self.get_value_type(value)
-            tree_data[node_id] = {
-                "key": key,
-                "value": value,
-                "type": value_type
+        node_id = tree.insert(parent, "end", text=str(key), values=(value_text,))
+        tree_data[node_id] = {
+            "key": key,
+            "value": value,
+            "type": value_type,
+            "loaded": not isinstance(value, (dict, list)),
+            "offset": 0
+        }
+
+        if isinstance(value, (dict, list)) and value:
+            placeholder = tree.insert(node_id, "end", text="加载中...", values=("",))
+            tree_data[placeholder] = {
+                "key": "",
+                "value": "",
+                "type": "placeholder",
+                "loaded": True
             }
 
-            if isinstance(value, dict):
-                tree.set(node_id, "value", f"{{{len(value)} 项}}")
-                self.fill_dict(value, node_id, tree, tree_data)
-            elif isinstance(value, list):
-                tree.set(node_id, "value", f"[{len(value)} 项]")
-                self.fill_list(value, node_id, tree, tree_data)
-            else:
-                tree.set(node_id, "value", self.format_value(value))
+        return node_id
 
-    def fill_list(self, data, parent, tree, tree_data):
-        """填充列表到树状视图"""
-        for index, value in enumerate(data):
-            node_id = tree.insert(parent, "end", text=f"[{index}]")
+    def load_tree_children(self, tree, tree_data):
+        """展开节点时加载子节点"""
+        item = tree.focus()
+        self.load_children_batch(tree, tree_data, item)
 
-            value_type = self.get_value_type(value)
-            tree_data[node_id] = {
-                "key": index,
-                "value": value,
-                "type": value_type
+    def load_more_children(self, tree, tree_data, item):
+        """加载下一批子节点"""
+        parent = tree.parent(item)
+        if not parent:
+            return
+        tree.delete(item)
+        tree_data.pop(item, None)
+        self.load_children_batch(tree, tree_data, parent)
+
+    def load_children_batch(self, tree, tree_data, item):
+        """分批加载子节点"""
+        node_data = tree_data.get(item)
+        if not node_data or node_data.get("loaded"):
+            return
+
+        value = node_data.get("value")
+        for child in tree.get_children(item):
+            child_type = tree_data.get(child, {}).get("type")
+            if child_type in {"placeholder", "load_more"}:
+                tree.delete(child)
+                tree_data.pop(child, None)
+
+        offset = node_data.get("offset", 0)
+        loaded_count = 0
+
+        if isinstance(value, dict):
+            for index, (key, child_value) in enumerate(value.items()):
+                if index < offset:
+                    continue
+                if loaded_count >= self.TREE_BATCH_SIZE:
+                    break
+                self.insert_json_node(tree, tree_data, item, key, child_value)
+                loaded_count += 1
+        elif isinstance(value, list):
+            for index, child_value in enumerate(value[offset:offset + self.TREE_BATCH_SIZE], start=offset):
+                self.insert_json_node(tree, tree_data, item, f"[{index}]", child_value)
+                loaded_count += 1
+
+        node_data["offset"] = offset + loaded_count
+        total = len(value) if isinstance(value, (dict, list)) else 0
+        if node_data["offset"] >= total:
+            node_data["loaded"] = True
+        else:
+            remaining = total - node_data["offset"]
+            load_more = tree.insert(item, "end", text="加载更多...", values=(f"剩余 {remaining} 项",))
+            tree_data[load_more] = {
+                "key": "",
+                "value": "",
+                "type": "load_more",
+                "loaded": True
             }
-
-            if isinstance(value, dict):
-                tree.set(node_id, "value", f"{{{len(value)} 项}}")
-                self.fill_dict(value, node_id, tree, tree_data)
-            elif isinstance(value, list):
-                tree.set(node_id, "value", f"[{len(value)} 项]")
-                self.fill_list(value, node_id, tree, tree_data)
-            else:
-                tree.set(node_id, "value", self.format_value(value))
 
     def get_value_type(self, value):
         """获取值类型"""
@@ -499,8 +550,20 @@ class JSONPanel(ctk.CTkFrame):
             print(f"复制失败: {e}")
 
     def show_error(self, tab_name, message):
-        """在指定 tab 的输入框中显示错误消息"""
+        """在指定 tab 的结果树中显示错误消息"""
         if tab_name in self.tabs:
-            json_input = self.tabs[tab_name]["json_input"]
-            json_input.delete("1.0", "end")
-            json_input.insert("1.0", f"/*\n错误:\n{message}\n*/")
+            tab_info = self.tabs[tab_name]
+            tab_info["json_data"] = None
+
+            tree = tab_info["treeview"]
+            tree_data = tab_info["tree_data"]
+            for item in tree.get_children():
+                tree.delete(item)
+            tree_data.clear()
+
+            node_id = tree.insert("", "end", text="错误", values=(message,))
+            tree_data[node_id] = {
+                "key": "错误",
+                "value": message,
+                "type": "string"
+            }
