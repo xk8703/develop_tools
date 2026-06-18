@@ -1,0 +1,1 @@
+python .\pg_to_entity.py --host 127.0.0.1 --port 5432 --db db_01 --user postgres --password 123!@# --schema s_01 --output ./ --table all
