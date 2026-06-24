@@ -32,7 +32,7 @@ class MyApp(ctk.CTk):
         """创建左侧菜单"""
         self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_rowconfigure(5, weight=1)  # 添加弹性空间
+        self.sidebar.grid_rowconfigure(6, weight=1)  # 添加弹性空间
 
         # 标题
         self.logo_label = ctk.CTkLabel(
@@ -47,6 +47,7 @@ class MyApp(ctk.CTk):
         self.create_sidebar_button("JSON工具", 2, "json")
         self.create_sidebar_button("字段格式化", 3, "format")
         self.create_sidebar_button("SQL工具", 4, "sql")
+        self.create_sidebar_button("Excel处理", 5, "excel")
 
         # 外观模式切换按钮
         self.appearance_mode_menu = ctk.CTkOptionMenu(
@@ -54,7 +55,7 @@ class MyApp(ctk.CTk):
             values=["Light", "Dark", "System"],
             command=self.change_appearance_mode_event
         )
-        self.appearance_mode_menu.grid(row=6, column=0, padx=20, pady=20)
+        self.appearance_mode_menu.grid(row=7, column=0, padx=20, pady=20)
 
     def create_sidebar_button(self, text, row, tool_type):
         """创建侧边栏按钮"""
@@ -93,6 +94,8 @@ class MyApp(ctk.CTk):
             self.show_format_tool()
         elif tool_type == "sql":
             self.show_sql_tool()
+        elif tool_type == "excel":
+            self.show_excel_tool()
 
     def show_time_tool(self):
         """显示时间工具"""
@@ -117,6 +120,12 @@ class MyApp(ctk.CTk):
         from ui.sql_panel import SQLPanel
         sql_panel = SQLPanel(self.content_frame)
         sql_panel.pack(fill="both", expand=True)
+
+    def show_excel_tool(self):
+        """显示 Excel 处理工具"""
+        from ui.excel_panel import ExcelPanel
+        excel_panel = ExcelPanel(self.content_frame)
+        excel_panel.pack(fill="both", expand=True)
 
     def change_appearance_mode_event(self, new_appearance_mode: str):
         """切换外观模式"""
